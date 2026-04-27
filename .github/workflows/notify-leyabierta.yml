@@ -1,0 +1,42 @@
+name: Notify leyabierta
+
+# When this repo is pushed (i.e. new laws or reforms have been published by the
+# pipeline running on KonarServer), notify the `leyabierta/leyabierta` repo so
+# its static-site build can rebuild and pick up the new content.
+#
+# The dispatch event is consumed by `leyabierta/leyabierta/.github/workflows/deploy.yml`
+# which forces web=true api=false on the rebuild.
+#
+# A backstop in `leyabierta/leyabierta` polls this repo's HEAD every 30 minutes
+# and triggers the same dispatch path if a push event is ever dropped, so this
+# workflow being silently broken is recoverable within ≤30 minutes.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-leyabierta
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch leyes-updated to leyabierta
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send repository_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.LEYABIERTA_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          echo "Notifying leyabierta/leyabierta of leyes update at $SHA"
+          gh api -X POST repos/leyabierta/leyabierta/dispatches \
+            -f event_type=leyes-updated \
+            -f "client_payload[source]=push" \
+            -f "client_payload[leyes_sha]=$SHA" \
+            -f "client_payload[message]=$(git log -1 --pretty=%s ${{ github.sha }} 2>/dev/null || echo 'leyes push')"
+          echo "✓ dispatch sent"
